@@ -12,7 +12,7 @@ properties([
 pipeline {
   agent any
 
-  // Auto build on push + fallback polling
+
   triggers {
     githubPush()
     pollSCM('H/5 * * * *')
