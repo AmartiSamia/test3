@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your Name — Portfolio</title>
+  <meta name="description" content="Personal portfolio of Your Name: projects, skills, and contact." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Skip link for accessibility -->
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#home" aria-label="Go to home">
+        <span class="brand-logo" aria-hidden="true">◆</span>
+        <span class="brand-text">Your Name</span>
+      </a>
+
+      <button id="menuToggle" class="icon-button" aria-expanded="false" aria-controls="siteNav" aria-label="Open menu">
+        ☰
+      </button>
+
+      <nav id="siteNav" class="nav" aria-label="Primary">
+        <a href="#about">About</a>
+        <a href="#projects">Projects</a>
+        <a href="#contact">Contact</a>
+        <button id="themeToggle" class="chip" type="button" aria-pressed="false" title="Toggle dark mode">🌙</button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section id="home" class="section hero">
+      <div class="container grid-2">
+        <div>
+          <h1>Hello, I’m <span class="accent">Your Name</span> 👋</h1>
+          <p class="lead">
+            I build simple, delightful web experiences. Here are a few things I’ve made and how to reach me.
+          </p>
+          <div class="actions">
+            <a class="btn" href="#projects">See Projects</a>
+            <a class="btn btn-ghost" href="#contact">Contact Me</a>
+          </div>
+        </div>
+        <figure class="hero-card" aria-label="Profile photo">
+          <img src="https://picsum.photos/600/600?grayscale" alt="Portrait placeholder" />
+        </figure>
+      </div>
+    </section>
+
+    <!-- About -->
+    <section id="about" class="section">
+      <div class="container">
+        <h2>About</h2>
+        <p>
+          I’m a web enthusiast learning HTML, CSS, and JavaScript. I enjoy turning ideas into
+          neat interfaces and I’m currently exploring responsive design and accessibility.
+        </p>
+
+        <div class="pill-list" role="list" aria-label="Skills">
+          <span role="listitem" class="pill">HTML</span>
+          <span role="listitem" class="pill">CSS</span>
+          <span role="listitem" class="pill">JavaScript</span>
+          <span role="listitem" class="pill">Git</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Projects -->
+    <section id="projects" class="section alt">
+      <div class="container">
+        <h2>Projects</h2>
+
+        <div class="cards">
+          <article class="card">
+            <h3>Task Tracker</h3>
+            <p>A tiny to-do app with localStorage so your tasks persist between visits.</p>
+            <div class="card-tags">
+              <span class="tag">HTML</span><span class="tag">CSS</span><span class="tag">JS</span>
+            </div>
+            <div class="card-actions">
+              <a class="btn btn-ghost" href="#" aria-disabled="true">Live</a>
+              <a class="btn" href="#" aria-disabled="true">Code</a>
+            </div>
+          </article>
+
+          <article class="card">
+            <h3>Color Palette Picker</h3>
+            <p>Click to copy hex codes and save your favorite palettes.</p>
+            <div class="card-tags">
+              <span class="tag">CSS</span><span class="tag">JS</span>
+            </div>
+            <div class="card-actions">
+              <a class="btn btn-ghost" href="#" aria-disabled="true">Live</a>
+              <a class="btn" href="#" aria-disabled="true">Code</a>
+            </div>
+          </article>
+
+          <article class="card">
+            <h3>Markdown Notes</h3>
+            <p>Write notes in Markdown and preview them instantly.</p>
+            <div class="card-tags">
+              <span class="tag">JS</span>
+            </div>
+            <div class="card-actions">
+              <a class="btn btn-ghost" href="#" aria-disabled="true">Live</a>
+              <a class="btn" href="#" aria-disabled="true">Code</a>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Contact -->
+    <section id="contact" class="section">
+      <div class="container">
+        <h2>Contact</h2>
+        <p>Want to say hi or collaborate? Send a message below.</p>
+
+        <!-- Front-end only demo form -->
+        <form id="contactForm" class="form" novalidate>
+          <label>
+            <span>Name</span>
+            <input name="name" type="text" placeholder="Ada Lovelace" required />
+            <small class="error"></small>
+          </label>
+
+          <label>
+            <span>Email</span>
+            <input name="email" type="email" placeholder="you@example.com" required />
+            <small class="error"></small>
+          </label>
+
+          <label>
+            <span>Message</span>
+            <textarea name="message" rows="5" placeholder="Hello!" required></textarea>
+            <small class="error"></small>
+          </label>
+
+          <button class="btn" type="submit">Send</button>
+          <p id="formStatus" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© <span id="year"></span> Your Name — Built with HTML, CSS & JS.</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
