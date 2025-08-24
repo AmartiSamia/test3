@@ -8,7 +8,7 @@ properties([
     string(name: 'LB_IP', defaultValue: '', description: 'Optional static public IP (leave empty to let AKS allocate)')
   ])
 ])
-
+  
 pipeline {
   agent any
 
