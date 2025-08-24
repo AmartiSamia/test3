@@ -1,18 +1,7 @@
-// Register parameters immediately (visible to the API/UI)
-properties([
-  parameters([
-    string(name: 'GITHUB_URL',   defaultValue: '', description: 'GitHub repo URL (https://github.com/you/repo)'),
-    string(name: 'PROJECT_NAME', defaultValue: '', description: 'Project slug (ACR repo + K8s app name)'),
-    string(name: 'DEPLOYMENT_ID', defaultValue: '', description: 'Optional deployment ID for callbacks'),
-    string(name: 'LB_RG', defaultValue: 'MC_devops-monitoring-rg_devops-aks_eastus', description: 'AKS managed RG for Azure LB annotation'),
-    string(name: 'LB_IP', defaultValue: '', description: 'Optional static public IP (leave empty to let AKS allocate)')
-  ])
-])
-  
 pipeline {
   agent any
 
-
+  // Auto build on push + fallback polling
   triggers {
     githubPush()
     pollSCM('H/5 * * * *')
@@ -43,8 +32,8 @@ pipeline {
     IMAGE_TAG    = "${BUILD_NUMBER}"
     NAMESPACE    = "${params.PROJECT_NAME}-dev"
 
-    // Your backend (on the Jenkins VM) for callbacks
-    BACKEND_BASE = 'http://localhost:4000'
+    // ScrumOps backend for callbacks - Jenkins should be able to reach this
+    BACKEND_BASE = 'http://localhost:8081'
   }
 
   stages {
@@ -91,7 +80,7 @@ pipeline {
           }
 
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"validate","status":"success"}' || true"""
           }
@@ -103,7 +92,7 @@ pipeline {
       steps {
         script {
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"checkout","status":"running"}' || true"""
           }
@@ -117,14 +106,19 @@ pipeline {
             git branch: 'main', url: env.GITHUB_URL
           } catch (err) {
             echo "main not found, trying master…"
-            git branch: 'master', url: env.GITHUB_URL
+            try {
+              git branch: 'master', url: env.GITHUB_URL
+            } catch (err2) {
+              echo "master not found, trying develop…"
+              git branch: 'develop', url: env.GITHUB_URL
+            }
           }
 
           env.GIT_COMMIT_HASH = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
           env.GIT_AUTHOR      = sh(script: 'git log -1 --pretty=%an',    returnStdout: true).trim()
 
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"checkout","status":"success"}' || true"""
           }
@@ -136,7 +130,7 @@ pipeline {
       steps {
         script {
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"analyze","status":"running"}' || true"""
           }
@@ -146,7 +140,11 @@ pipeline {
           if (fileExists('package.json')) {
             env.PROJECT_TYPE = 'nodejs'
             env.PORT = '3000'
-            echo "🔬 Detected: Node.js"
+            echo "🔬 Detected: Node.js (React/Next.js)"
+          } else if (fileExists('pom.xml')) {
+            env.PROJECT_TYPE = 'maven'
+            env.PORT = '8080'
+            echo "🔬 Detected: Maven (Spring Boot)"
           } else if (fileExists('requirements.txt')) {
             env.PROJECT_TYPE = 'python'
             env.PORT = '8000'
@@ -162,7 +160,7 @@ pipeline {
           }
 
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"analyze","status":"success"}' || true"""
           }
@@ -174,33 +172,44 @@ pipeline {
       steps {
         script {
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"prepare","status":"running"}' || true"""
           }
 
           if (!fileExists('Dockerfile')) {
             echo "📝 Creating Dockerfile for ${env.PROJECT_TYPE}"
-            def df = (
-              env.PROJECT_TYPE == 'nodejs'  ? '''FROM node:18-alpine
+            def df = ''
+            
+            if (env.PROJECT_TYPE == 'nodejs') {
+              df = '''FROM node:18-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --production || npm install
 COPY . .
 EXPOSE 3000
-CMD ["npm","start"]''' :
-              env.PROJECT_TYPE == 'python' ? '''FROM python:3.11-slim
+CMD ["npm","start"]'''
+            } else if (env.PROJECT_TYPE == 'maven') {
+              df = '''FROM openjdk:17-jdk-slim
+WORKDIR /app
+COPY target/*.jar app.jar
+EXPOSE 8080
+CMD ["java","-jar","app.jar"]'''
+            } else if (env.PROJECT_TYPE == 'python') {
+              df = '''FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt* ./
 RUN pip install -r requirements.txt
 COPY . .
 EXPOSE 8000
-CMD ["python","app.py"]''' :
-              '''FROM nginx:alpine
+CMD ["python","app.py"]'''
+            } else {
+              df = '''FROM nginx:alpine
 COPY . /usr/share/nginx/html/
 EXPOSE 80
 CMD ["nginx","-g","daemon off;"]'''
-            )
+            }
+            
             writeFile file: 'Dockerfile', text: df
           } else {
             echo '📄 Using existing Dockerfile'
@@ -209,7 +218,7 @@ CMD ["nginx","-g","daemon off;"]'''
           sh 'echo "---- Dockerfile ----"; cat Dockerfile; echo "-------------------"'
 
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"prepare","status":"success"}' || true"""
           }
@@ -221,9 +230,20 @@ CMD ["nginx","-g","daemon off;"]'''
       steps {
         script {
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"build","status":"running"}' || true"""
+          }
+        }
+
+        script {
+          // For Maven projects, build first
+          if (env.PROJECT_TYPE == 'maven') {
+            echo "🏗️ Building Maven project..."
+            sh 'mvn clean package -DskipTests'
+          } else if (env.PROJECT_TYPE == 'nodejs') {
+            echo "🏗️ Building Node.js project..."
+            sh 'npm run build || echo "No build script found, proceeding..."'
           }
         }
 
@@ -234,7 +254,7 @@ CMD ["nginx","-g","daemon off;"]'''
 
         script {
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"build","status":"success"}' || true"""
           }
@@ -246,7 +266,7 @@ CMD ["nginx","-g","daemon off;"]'''
       steps {
         script {
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"push","status":"running"}' || true"""
           }
@@ -264,7 +284,7 @@ CMD ["nginx","-g","daemon off;"]'''
 
         script {
           if (params.DEPLOYMENT_ID?.trim()) {
-            sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+            sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                  -H "Content-Type: application/json" \
                  -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"push","status":"success"}' || true"""
           }
@@ -299,7 +319,7 @@ CMD ["nginx","-g","daemon off;"]'''
         ]) {
           script {
             if (params.DEPLOYMENT_ID?.trim()) {
-              sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+              sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                    -H "Content-Type: application/json" \
                    -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"deploy","status":"running"}' || true"""
             }
@@ -391,7 +411,7 @@ ${lbIpLine}""".stripIndent()
             }
 
             if (params.DEPLOYMENT_ID?.trim()) {
-              sh """curl -s -X POST "${BACKEND_BASE}/api/internal/stages" \
+              sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
                    -H "Content-Type: application/json" \
                    -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"deploy","status":"success"}' || true"""
             }
@@ -403,6 +423,14 @@ ${lbIpLine}""".stripIndent()
     stage('Get External URL') {
       steps {
         withCredentials([file(credentialsId: 'kubeconfig-dev', variable: 'KUBECONFIG_FILE')]) {
+          script {
+            if (params.DEPLOYMENT_ID?.trim()) {
+              sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
+                   -H "Content-Type: application/json" \
+                   -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"health-check","status":"running"}' || true"""
+            }
+          }
+
           sh '''
             set -e
             export PATH="$PWD:$PATH"
@@ -411,24 +439,36 @@ ${lbIpLine}""".stripIndent()
             for i in {1..30}; do
               EXTERNAL_IP=$(kubectl get svc ${PROJECT_NAME}-service -n ${NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
               if [ -n "$EXTERNAL_IP" ] && [ "$EXTERNAL_IP" != "null" ]; then
-                echo "LIVE: http://$EXTERNAL_IP"
-                # Always update project URL; keep deployment callback as well
-                curl -s -X POST "${BACKEND_BASE}/api/internal/projects/${PROJECT_NAME}/url" \
+                echo "🎉 LIVE URL: http://$EXTERNAL_IP"
+                
+                # Update project URL for ScrumOps tracking
+                curl -s -X POST "${BACKEND_BASE}/api/devops/internal/projects/${PROJECT_NAME}/url" \
                      -H "Content-Type: application/json" \
                      -d "{\"external_url\":\"http://$EXTERNAL_IP\"}" || true
+                     
+                # Update deployment URL if we have deployment ID
                 if [ -n "${DEPLOYMENT_ID}" ]; then
-                  curl -s -X POST "${BACKEND_BASE}/api/internal/deployments/${DEPLOYMENT_ID}/url" \
+                  curl -s -X POST "${BACKEND_BASE}/api/devops/internal/deployments/${DEPLOYMENT_ID}/url" \
                        -H "Content-Type: application/json" \
                        -d "{\"external_url\":\"http://$EXTERNAL_IP\"}" || true
                 fi
                 break
               fi
-              echo "⏳ waiting LB IP ($i/30)"
+              echo "⏳ waiting for load balancer IP ($i/30)"
               sleep 10
             done
 
+            echo "📋 Kubernetes resources:"
             kubectl get all -n ${NAMESPACE}
           '''
+
+          script {
+            if (params.DEPLOYMENT_ID?.trim()) {
+              sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/stages" \
+                   -H "Content-Type: application/json" \
+                   -d '{"deployment_id":"${params.DEPLOYMENT_ID}","stage_name":"health-check","status":"success"}' || true"""
+            }
+          }
         }
       }
     }
@@ -442,12 +482,12 @@ ${lbIpLine}""".stripIndent()
     success {
       script {
         if (params.DEPLOYMENT_ID?.trim()) {
-          sh """curl -s -X POST "${BACKEND_BASE}/api/internal/deployments/${params.DEPLOYMENT_ID}/status" \
+          sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/deployments/${params.DEPLOYMENT_ID}/status" \
                -H "Content-Type: application/json" \
                -d '{"status":"success"}' || true"""
         }
       }
-      echo "🎉 ✅ DEPLOYMENT SUCCESSFUL"
+      echo "🎉 ✅ DEPLOYMENT SUCCESSFUL! Check ScrumOps dashboard for live URL."
     }
     failure {
       withCredentials([file(credentialsId: 'kubeconfig-dev', variable: 'KUBECONFIG_FILE')]) {
@@ -466,17 +506,12 @@ ${lbIpLine}""".stripIndent()
       }
       script {
         if (params.DEPLOYMENT_ID?.trim()) {
-          sh """curl -s -X POST "${BACKEND_BASE}/api/internal/deployments/${params.DEPLOYMENT_ID}/status" \
+          sh """curl -s -X POST "${BACKEND_BASE}/api/devops/internal/deployments/${params.DEPLOYMENT_ID}/status" \
                -H "Content-Type: application/json" \
                -d '{"status":"failed"}' || true"""
         }
-        sh """curl -s -X POST "${BACKEND_BASE}/api/internal/projects/${PROJECT_NAME}/status" \
-             -H "Content-Type: application/json" \
-             -d '{"status":"failed"}' || true"""
       }
-      echo "💥 ❌ DEPLOYMENT FAILED"
+      echo "💥 ❌ DEPLOYMENT FAILED - Check Jenkins logs and ScrumOps dashboard"
     }
   }
 }
-
-// ss
